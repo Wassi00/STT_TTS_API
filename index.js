@@ -90,29 +90,60 @@ app.post("/stt", upload.single("audio"), async (req, res) => {
   }
 });
 
-// app.post("/cloud", async (req, res) => {
-//   const { text } = req.body;
-//   if (!text) return res.status(400).json({ error: "No text provided" });
+app.post("/sttsql", upload.single("audio"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No audio file uploaded." });
+  }
 
-//   const request = {
-//     input: { text },
-//     voice: {
-//       languageCode: "ar-XA",
-//       name: "ar-XA-Wavenet-D",
-//       ssmlGender: "MALE",
-//     },
-//     audioConfig: { audioEncoding: "MP3" },
-//   };
+  try {
+    const audioBytes = fs.readFileSync(req.file.path).toString("base64");
 
-//   try {
-//     const [response] = await client.synthesizeSpeech(request);
-//     res.set("Content-Type", "audio/mpeg");
-//     res.send(response.audioContent);
-//   } catch (error) {
-//     console.error("TTS Error:", error);
-//     res.status(500).json({ error: "Failed to synthesize speech" });
-//   }
-// });
+    const audio = {
+      content: audioBytes,
+    };
+
+    const config = {
+      // encoding: "LINEAR16",
+      languageCode: "ar-MA", // Moroccan Darija
+    };
+
+    const request = {
+      audio,
+      config,
+    };
+
+    const [response] = await clientSTT.recognize(request);
+
+    const transcription = response.results
+      .map((result) => result.alternatives[0].transcript)
+      .join("\n");
+
+    console.log("Transcription:", transcription);
+
+    const responseAPI = await axios.post(
+      process.env.API_BASE_URL + process.env.API_URL_DATABASE,
+      {
+        question: transcription,
+      }
+    );
+
+    console.log("API Response:", responseAPI.data);
+    if (!responseAPI.data || !responseAPI.data.response) {
+      return res.status(500).json({ error: "No response from API" });
+    }
+
+    res.json({
+      transcription: transcription,
+      apiResponse: responseAPI.data.response,
+    });
+  } catch (err) {
+    console.error("Google STT Error:", err);
+    res.status(500).json({ error: "Speech recognition failed" });
+  } finally {
+    // Clean up temp file
+    fs.unlinkSync(req.file.path);
+  }
+});
 
 const clientG = new GoogleGenAI({ apiKey: process.env.GEN_API_KEY });
 
